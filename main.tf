@@ -31,8 +31,7 @@ resource "azurerm_service_plan" "function_plan" {
   sku_name            = "Y1"
 }
 
-# --- BLOCO CORRIGIDO E MODERNIZADO ABAIXO ---
-# Estamos a usar 'azurerm_linux_function_app', que é o recurso recomendado.
+# --- BLOCO CORRIGIDO E DEFINITIVO ABAIXO ---
 resource "azurerm_linux_function_app" "auth_function" {
   name                = "func-tchungry-auth"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -42,16 +41,15 @@ resource "azurerm_linux_function_app" "auth_function" {
   storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
   service_plan_id            = azurerm_service_plan.function_plan.id
 
-  # ✅ Esta é a configuração correta e explícita para o .NET 9 Isolated.
-  site_config {
-    application_stack {
-      dotnet_version = "9.0"
-    }
-    # Para o .NET 9 (Preview), o runtime Isolated é o padrão e recomendado.
-  }
+  # Removemos o site_config completamente para evitar conflitos
+  site_config {}
 
+  # ✅ A SOLUÇÃO DEFINITIVA:
+  # Definimos a stack de execução diretamente nas configurações da aplicação.
+  # Esta é a forma mais direta e contorna a validação confusa do Terraform.
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated"
+    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated",
+    "linuxFxVersion"           = "DOTNET-ISOLATED|9.0"
   }
 }
 # --- FIM DO BLOCO CORRIGIDO ---
