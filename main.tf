@@ -15,7 +15,7 @@ data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
- 
+# --- Recursos da Function ---
 resource "azurerm_storage_account" "function_storage" {
   name                     = "stauth${replace(var.resource_group_name, "-", "")}"
   resource_group_name      = data.azurerm_resource_group.rg.name
@@ -41,16 +41,15 @@ resource "azurerm_linux_function_app" "auth_function" {
   storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
   service_plan_id            = azurerm_service_plan.function_plan.id
 
-  site_config {
-    
-  }
+  site_config {}
 
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated",
     "linuxFxVersion"           = "DOTNET-ISOLATED|8.0"
   }
 }
- 
+
+# --- Recurso do APIM ---
 resource "azurerm_api_management" "apim" {
   name                = "apim-tchungry-gateway"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -60,20 +59,16 @@ resource "azurerm_api_management" "apim" {
   sku_name            = "Consumption_0"
 }
 
+# --- Configuração do APIM ---
 
- 
-
- 
 resource "azurerm_api_management_backend" "api_aks_backend" {
   name                = "api-aks-backend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
- 
-  url                 = "https://tchungryapialealencarr.brazilsouth.cloudapp.azure.com"
+  url                 = "http://tchungry-api.brazilsouth.cloudapp.azure.com"
 }
 
- 
 resource "azurerm_api_management_backend" "auth_function_backend" {
   name                = "auth-function-backend"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -82,18 +77,16 @@ resource "azurerm_api_management_backend" "auth_function_backend" {
   url                 = "https://func-tchungry-auth.azurewebsites.net"
 }
 
- 
 resource "azurerm_api_management_api" "lanchonete_api" {
   name                = "lanchonete-api"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   revision            = "1"
   display_name        = "API Hungry"
-  path                = "api"  
+  path                = "api"
   protocols           = ["https"]
 }
 
- 
 resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
   api_name            = azurerm_api_management_api.lanchonete_api.name
   api_management_name = azurerm_api_management.apim.name
@@ -103,19 +96,14 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
     <policies>
         <inbound>
             <base />
- 
             <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
             
-     
             <choose>
-		<when condition="@(context.Request.MatchesTemplate("/api/auth") || context.Request.MatchesTemplate("/api/register"))">
-                    <!-- ...então envie a requisição para o backend da Azure Function -->
+                <when condition="@(context.Request.Url.Path.Contains("/register") || context.Request.Url.Path.Contains("/customer/identifier"))">
                     <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
-
                 </when>
-               
+                
                 <otherwise>
-                    <!-- ...envie a requisição para o backend da API no AKS -->
                     <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
                 </otherwise>
             </choose>
@@ -131,5 +119,6 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
         </on-error>
     </policies>
   EOT
-}
+} 
 
+ 
