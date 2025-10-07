@@ -1,0 +1,44 @@
+# Nome do workflow
+name: Deploy Infraestrutura com Terraform
+
+# Gatilhos: Roda em pushes para a main (após um merge) E em pull requests para a main
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Baixa o código do repositório
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Faz o login no Azure usando as credenciais seguras
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 3. Instala a versão correta do Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      # 4. Inicializa o Terraform
+      - name: Terraform Init
+        run: terraform init
+
+      # 5. Gera um plano. Este passo SEMPRE roda.
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # 6. APLICA o plano, mas SOMENTE se o evento for um PUSH na branch MAIN.
+      # Isso garante que o apply só aconteça depois que um PR for aprovado e mergeado.
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
