@@ -42,11 +42,12 @@ resource "azurerm_linux_function_app" "auth_function" {
   service_plan_id            = azurerm_service_plan.function_plan.id
 
   site_config {
-    linux_fx_version = "DOTNET-ISOLATED|8.0"
+    
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated"
+    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated",
+    "linuxFxVersion"           = "DOTNET-ISOLATED|8.0"
   }
 }
  
@@ -69,7 +70,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
  
-  url                 = "http://tchungryapialealencarr.brazilsouth.cloudapp.azure.com"
+  url                 = "https://tchungryapialealencarr.brazilsouth.cloudapp.azure.com"
 }
 
  
@@ -77,7 +78,7 @@ resource "azurerm_api_management_backend" "auth_function_backend" {
   name                = "auth-function-backend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
-  protocol            = "https"
+  protocol            = "http"
   url                 = "https://func-tchungry-auth.azurewebsites.net"
 }
 
