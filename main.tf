@@ -31,31 +31,30 @@ resource "azurerm_service_plan" "function_plan" {
   sku_name            = "Y1"
 }
 
-resource "azurerm_function_app" "auth_function" {
+# --- BLOCO CORRIGIDO E MODERNIZADO ABAIXO ---
+# Estamos a usar 'azurerm_linux_function_app', que é o recurso recomendado.
+resource "azurerm_linux_function_app" "auth_function" {
   name                = "func-tchungry-auth"
   resource_group_name = data.azurerm_resource_group.rg.name
   location            = data.azurerm_resource_group.rg.location
 
   storage_account_name       = azurerm_storage_account.function_storage.name
   storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
-  app_service_plan_id = azurerm_service_plan.function_plan.id
-  
-  os_type          = "linux"
-  
+  service_plan_id            = azurerm_service_plan.function_plan.id
+
+  # ✅ Esta é a configuração correta e explícita para o .NET 9 Isolated.
   site_config {
-    
+    application_stack {
+      dotnet_version = "9.0"
+    }
+    # Para o .NET 9 (Preview), o runtime Isolated é o padrão e recomendado.
   }
 
   app_settings = {
-    # Se quiser .NET 9 (Isolated), descomente a linha abaixo e comente o bloco application_stack acima
-     "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated" 
-    
-    # Para .NET 8 (In-Process), mantenha como está
-    # "FUNCTIONS_WORKER_RUNTIME" = "dotnet"
+    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated"
   }
 }
-
-
+# --- FIM DO BLOCO CORRIGIDO ---
 
 resource "azurerm_api_management" "apim" {
   name                = "apim-tchungry-gateway"
