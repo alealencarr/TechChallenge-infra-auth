@@ -49,7 +49,7 @@ resource "azurerm_linux_function_app" "auth_function" {
   # Esta é a forma mais direta e contorna a validação confusa do Terraform.
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated",
-    "linuxFxVersion"           = "DOTNET-ISOLATED|9.0"
+    "linuxFxVersion"           = "DOTNET-ISOLATED|8.0"
   }
 }
 # --- FIM DO BLOCO CORRIGIDO ---
