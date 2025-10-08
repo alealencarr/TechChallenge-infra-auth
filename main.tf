@@ -66,7 +66,7 @@ resource "azurerm_api_management" "apim" {
 
 # --- Backend para AKS ---
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "apiaksbackendvlatest"
+  name                = "apiaksbackend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -77,7 +77,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 
 # --- Backend para Function ---
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "authfunctionbackendvlatest"
+  name                = "authfunctionbackend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -97,6 +97,31 @@ resource "azurerm_api_management_api" "lanchonete_api" {
   protocols           = ["https"]
   
   depends_on = [azurerm_api_management.apim]
+
+  subscription_required = false
+}
+
+
+locals {
+  http_methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+}
+
+resource "azurerm_api_management_api_operation" "catch_all" {
+  for_each = toset(local.http_methods)
+  
+  operation_id        = "catch-all-${lower(each.value)}"
+  api_name            = azurerm_api_management_api.lanchonete_api.name
+  api_management_name = azurerm_api_management.apim.name
+  resource_group_name = data.azurerm_resource_group.rg.name
+  display_name        = "Catch-all ${each.value}"
+  method              = each.value
+  url_template        = "/*"
+  
+  response {
+    status_code = 200
+  }
+  
+  depends_on = [azurerm_api_management_api.lanchonete_api]
 }
 
 # --- Policy da API ---
@@ -105,34 +130,33 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
   api_management_name = azurerm_api_management.apim.name
   resource_group_name = data.azurerm_resource_group.rg.name
 
-  xml_content = <<-EOT
-   <policies>
-    <inbound>
-        <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-        <choose>
-            <when condition="@(context.Request.Url.Path.EndsWith("/register") || context.Request.Url.Path.EndsWith("/auth"))">
-                <set-backend-service backend-id="authfunctionbackendvlatest" />
-            </when>
-            <otherwise>
-                <set-backend-service backend-id="apiaksbackendvlatest" />
-            </otherwise>
-        </choose>
-    </inbound>
-    <backend>
-        <base />
-    </backend>
-    <outbound>
-        <base />
-    </outbound>
-    <on-error>
-        <base />
-    </on-error>
+  xml_content = <<XML
+<policies>
+  <inbound>
+    <base />
+    <rate-limit calls="100" renewal-period="60" />
+    <choose>
+      <when condition="@(context.Request.Url.Path.Contains("/auth") || context.Request.Url.Path.Contains("/register"))">
+        <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
+      </when>
+      <otherwise>
+        <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
+      </otherwise>
+    </choose>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
 </policies>
-  EOT
+XML
 
   depends_on = [
-    azurerm_api_management_api.lanchonete_api,
-    azurerm_api_management_backend.api_aks_backend,
-    azurerm_api_management_backend.auth_function_backend
+    azurerm_api_management_api_operation.catch_all
   ]
 }
