@@ -65,7 +65,7 @@ resource "azurerm_api_management" "apim" {
 # --- Configuração do APIM (COM A CORREÇÃO FINAL) ---
 
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "apiaksbackend"
+  name                = "apiaksbackend_hungry"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -74,7 +74,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 }
 
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "authfunctionbackend"
+  name                = "authfunctionbackend_hungry"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
