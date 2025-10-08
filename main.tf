@@ -66,7 +66,7 @@ resource "azurerm_api_management" "apim" {
 
 # --- Backend para AKS ---
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "apiaksbackendlatest"
+  name                = "apiaksbackendvlatest"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -77,7 +77,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 
 # --- Backend para Function ---
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "authfunctionbackendlatest"
+  name                = "authfunctionbackendvlatest"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -106,30 +106,33 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
   resource_group_name = data.azurerm_resource_group.rg.name
 
   xml_content = <<-EOT
-    <policies>
-        <inbound>
-            <base />
-            <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-            
-            <choose>
-                <when condition="@(context.Request.Url.Path.Contains("/register") || context.Request.Url.Path.Contains("/auth"))">
-                    <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
-                </when>
-                <otherwise>
-                    <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
-                </otherwise>
-            </choose>
-        </inbound>
-        <backend>
-            <base />
-        </backend>
-        <outbound>
-            <base />
-        </outbound>
-        <on-error>
-            <base />
-        </on-error>
-    </policies>
+   <policies>
+    <inbound>
+      <base />
+      <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+  
+      <choose>
+        <when condition="@(context.Request.Url.Path.Contains('/register') || context.Request.Url.Path.Contains('/auth'))">
+          <set-backend-service backend-id="authfunctionbackendvlatest" />
+        </when>
+        <otherwise>
+          <set-backend-service backend-id="apiaksbackendvlatest" />
+        </otherwise>
+      </choose>
+    </inbound>
+  
+    <backend>
+      <base />
+    </backend>
+  
+    <outbound>
+      <base />
+    </outbound>
+  
+    <on-error>
+      <base />
+    </on-error>
+  </policies>
   EOT
 
   depends_on = [
