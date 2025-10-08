@@ -15,7 +15,6 @@ data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
-# --- Recursos da Function (sem alteração) ---
 resource "azurerm_storage_account" "function_storage" {
   name                     = "stauth${replace(var.resource_group_name, "-", "")}"
   resource_group_name      = data.azurerm_resource_group.rg.name
@@ -46,7 +45,6 @@ resource "azurerm_linux_function_app" "auth_function" {
   }
 }
 
-# --- Recurso do APIM (sem alteração) ---
 resource "azurerm_api_management" "apim" {
   name                = "apim-tchungry-gateway"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -56,10 +54,8 @@ resource "azurerm_api_management" "apim" {
   sku_name            = "Consumption_0"
 }
 
-# --- Configuração do APIM (COM A CORREÇÃO FINAL) ---
-
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "api-aks-backend"
+  name                = "apiaksbackend-latest"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -68,7 +64,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 }
 
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "auth-function-backend"
+  name                = "authfunctionbackend-latest"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -97,18 +93,13 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
         <inbound>
             <base />
             <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-            
-            <!-- ✅ BLOCO LÓGICO CORRIGIDO PARA AS SUAS ROTAS REAIS -->
             <choose>
-                <!-- Se o caminho da URL for exatamente /api/register ou /api/auth... -->
                 <when condition="@(context.Request.Url.Path.Equals("/api/register") || context.Request.Url.Path.Equals("/api/auth"))">
-                    <!-- ...então envie a requisição para o backend da Azure Function -->
                     <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
                 </when>
-                
                 <otherwise>
-                    <!-- Para tudo o resto, envie a requisição para o backend da API no AKS -->
                     <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
+                    <rewrite-uri template="@(context.Request.Url.Path.Substring(4))" />
                 </otherwise>
             </choose>
         </inbound>
@@ -130,3 +121,4 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
     azurerm_api_management_backend.auth_function_backend
   ]
 }
+
