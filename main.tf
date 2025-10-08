@@ -5,6 +5,12 @@ terraform {
       version = "~> 3.0"
     }
   }
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "tfstatetchungryale"
+    container_name       = "tfstate"
+    key                  = "infra-auth.tfstate"
+  }
 }
 
 provider "azurerm" {
@@ -59,7 +65,7 @@ resource "azurerm_api_management" "apim" {
 # --- Configuração do APIM (COM A CORREÇÃO FINAL) ---
 
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "apiaksbackend_hungry"
+  name                = "api-aks-backend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -68,7 +74,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 }
 
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "authfunctionbackend_hungry"
+  name                = "auth-function-backend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -98,22 +104,17 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
             <base />
             <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
             
-            <!-- ✅ BLOCO LÓGICO CORRIGIDO ABAIXO -->
+            <!-- ✅ BLOCO LÓGICO CORRIGIDO PARA AS SUAS ROTAS REAIS -->
             <choose>
-                <!-- Verifica se a URL termina com as rotas da função -->
-                <when condition="@(context.Request.Url.Path.EndsWith("/register") || context.Request.Url.Path.EndsWith("/customer/identifier"))">
+                <!-- Se o caminho da URL for exatamente /api/register ou /api/auth... -->
+                <when condition="@(context.Request.Url.Path.Equals("/api/register") || context.Request.Url.Path.Equals("/api/auth"))">
+                    <!-- ...então envie a requisição para o backend da Azure Function -->
                     <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
-                    <!-- Reescreve a URL para o formato que a Azure Function espera: /api/rota -->
-                    <rewrite-uri template="@{
-                        var path = context.Request.Url.Path;
-                        return "/api" + path;
-                    }" />
                 </when>
                 
                 <otherwise>
+                    <!-- Para tudo o resto, envie a requisição para o backend da API no AKS -->
                     <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
-                    <!-- Remove o /api do início do caminho antes de enviar para o AKS -->
-                    <rewrite-uri template="@(context.Request.Url.Path.Substring(4))" />
                 </otherwise>
             </choose>
         </inbound>
