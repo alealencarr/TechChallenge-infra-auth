@@ -7,9 +7,9 @@ terraform {
   }
   backend "azurerm" {
     resource_group_name  = "rg-terraform-state"
-    storage_account_name = "tfstatetchungryale"  
-    container_name       = "tfstate" 
-    key                  = "infra-auth.tfstate" 
+    storage_account_name = "tfstatetchungryale"
+    container_name       = "tfstate"
+    key                  = "infra-auth.tfstate"
   }
 }
 
@@ -21,7 +21,7 @@ data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
- 
+# --- Recursos da Function (sem alteração) ---
 resource "azurerm_storage_account" "function_storage" {
   name                     = "stauth${replace(var.resource_group_name, "-", "")}"
   resource_group_name      = data.azurerm_resource_group.rg.name
@@ -42,20 +42,17 @@ resource "azurerm_linux_function_app" "auth_function" {
   name                = "func-tchungry-auth"
   resource_group_name = data.azurerm_resource_group.rg.name
   location            = data.azurerm_resource_group.rg.location
-
   storage_account_name       = azurerm_storage_account.function_storage.name
   storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
   service_plan_id            = azurerm_service_plan.function_plan.id
-
   site_config {}
-
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated",
     "linuxFxVersion"           = "DOTNET-ISOLATED|8.0"
   }
 }
 
- 
+# --- Recurso do APIM (sem alteração) ---
 resource "azurerm_api_management" "apim" {
   name                = "apim-tchungry-gateway"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -65,7 +62,7 @@ resource "azurerm_api_management" "apim" {
   sku_name            = "Consumption_0"
 }
 
- 
+# --- Configuração do APIM (COM A CORREÇÃO FINAL) ---
 
 resource "azurerm_api_management_backend" "api_aks_backend" {
   name                = "apiaksbackend"
@@ -73,6 +70,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
   url                 = "http://tchungry-api.brazilsouth.cloudapp.azure.com"
+  depends_on          = [azurerm_api_management.apim]
 }
 
 resource "azurerm_api_management_backend" "auth_function_backend" {
@@ -81,6 +79,7 @@ resource "azurerm_api_management_backend" "auth_function_backend" {
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
   url                 = "https://func-tchungry-auth.azurewebsites.net"
+  depends_on          = [azurerm_api_management.apim]
 }
 
 resource "azurerm_api_management_api" "lanchonete_api" {
@@ -91,6 +90,7 @@ resource "azurerm_api_management_api" "lanchonete_api" {
   display_name        = "API Hungry"
   path                = "api"
   protocols           = ["https"]
+  depends_on          = [azurerm_api_management.apim]
 }
 
 resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
@@ -104,13 +104,22 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
             <base />
             <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
             
+            <!-- ✅ BLOCO LÓGICO CORRIGIDO ABAIXO -->
             <choose>
-                <when condition="@(context.Request.Url.Path.Contains("/register") || context.Request.Url.Path.Contains("/customer/identifier"))">
+                <!-- Verifica se a URL termina com as rotas da função -->
+                <when condition="@(context.Request.Url.Path.EndsWith("/register") || context.Request.Url.Path.EndsWith("/customer/identifier"))">
                     <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
+                    <!-- Reescreve a URL para o formato que a Azure Function espera: /api/rota -->
+                    <rewrite-uri template="@{
+                        var path = context.Request.Url.Path;
+                        return "/api" + path;
+                    }" />
                 </when>
                 
                 <otherwise>
                     <set-backend-service backend-id="${azurerm_api_management_backend.api_aks_backend.name}" />
+                    <!-- Remove o /api do início do caminho antes de enviar para o AKS -->
+                    <rewrite-uri template="@(context.Request.Url.Path.Substring(4))" />
                 </otherwise>
             </choose>
         </inbound>
@@ -125,6 +134,10 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
         </on-error>
     </policies>
   EOT
-} 
 
- 
+  depends_on = [
+    azurerm_api_management_api.lanchonete_api,
+    azurerm_api_management_backend.api_aks_backend,
+    azurerm_api_management_backend.auth_function_backend
+  ]
+}
