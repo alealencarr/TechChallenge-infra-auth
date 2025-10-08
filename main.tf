@@ -21,7 +21,7 @@ data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
-# --- Recursos da Function ---
+ 
 resource "azurerm_storage_account" "function_storage" {
   name                     = "stauth${replace(var.resource_group_name, "-", "")}"
   resource_group_name      = data.azurerm_resource_group.rg.name
@@ -55,7 +55,7 @@ resource "azurerm_linux_function_app" "auth_function" {
   }
 }
 
-# --- Recurso do APIM ---
+ 
 resource "azurerm_api_management" "apim" {
   name                = "apim-tchungry-gateway"
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -65,10 +65,10 @@ resource "azurerm_api_management" "apim" {
   sku_name            = "Consumption_0"
 }
 
-# --- Configuração do APIM ---
+ 
 
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "api-aks-backend"
+  name                = "apiaksbackend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
@@ -76,7 +76,7 @@ resource "azurerm_api_management_backend" "api_aks_backend" {
 }
 
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "auth-function-backend"
+  name                = "authfunctionbackend"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
