@@ -108,31 +108,26 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
   xml_content = <<-EOT
    <policies>
     <inbound>
-      <base />
-      <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-  
-      <choose>
-        <when condition="@(context.Request.Url.Path.Contains('/register') || context.Request.Url.Path.Contains('/auth'))">
-          <set-backend-service backend-id="authfunctionbackendvlatest" />
-        </when>
-        <otherwise>
-          <set-backend-service backend-id="apiaksbackendvlatest" />
-        </otherwise>
-      </choose>
+        <rate-limit-by-key calls="100" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+        <choose>
+            <when condition="@(context.Request.Url.Path.EndsWith("/register") || context.Request.Url.Path.EndsWith("/auth"))">
+                <set-backend-service backend-id="authfunctionbackendvlatest" />
+            </when>
+            <otherwise>
+                <set-backend-service backend-id="apiaksbackendvlatest" />
+            </otherwise>
+        </choose>
     </inbound>
-  
     <backend>
-      <base />
+        <base />
     </backend>
-  
     <outbound>
-      <base />
+        <base />
     </outbound>
-  
     <on-error>
-      <base />
+        <base />
     </on-error>
-  </policies>
+</policies>
   EOT
 
   depends_on = [
