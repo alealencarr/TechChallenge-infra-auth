@@ -5,103 +5,145 @@ terraform {
       version = "~> 3.0"
     }
   }
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "tfstatetchungryale"
+    container_name       = "tfstate"
+    key                  = "infra-gateway.tfstate"
+  }
 }
 
 provider "azurerm" {
   features {}
 }
 
+# --- Data Sources ---
+
 data "azurerm_resource_group" "rg" {
   name = var.resource_group_name
 }
 
-# --- Storage Account para Function ---
-resource "azurerm_storage_account" "function_storage" {
-  name                     = "stauth${replace(var.resource_group_name, "-", "")}"
-  resource_group_name      = data.azurerm_resource_group.rg.name
-  location                 = data.azurerm_resource_group.rg.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
+data "azurerm_virtual_network" "vnet" {
+  name                = var.vnet_name
+  resource_group_name = var.resource_group_name
 }
 
-# --- Service Plan para Function ---
-resource "azurerm_service_plan" "function_plan" {
-  name                = "plan-auth-serverless"
-  resource_group_name = data.azurerm_resource_group.rg.name
-  location            = data.azurerm_resource_group.rg.location
-  os_type             = "Linux"
-  sku_name            = "Y1"
+data "azurerm_subnet" "apim_subnet" {
+  name                 = var.apim_subnet_name
+  virtual_network_name = data.azurerm_virtual_network.vnet.name
+  resource_group_name  = data.azurerm_resource_group.rg.name
 }
 
-# --- Function App ---
-resource "azurerm_linux_function_app" "auth_function" {
-  name                       = "func-tchungry-auth"
-  resource_group_name        = data.azurerm_resource_group.rg.name
-  location                   = data.azurerm_resource_group.rg.location
-  storage_account_name       = azurerm_storage_account.function_storage.name
-  storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
-  service_plan_id            = azurerm_service_plan.function_plan.id
-  
-  site_config {
-    application_stack {
-      dotnet_version              = "8.0"
-      use_dotnet_isolated_runtime = true
-    }
-  }
-  
-  app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "dotnet-isolated"
+# Lê o estado remoto do infra-compute
+data "terraform_remote_state" "compute" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "tfstatetchungryale"
+    container_name       = "tfstate"
+    key                  = "infra-compute.tfstate"
   }
 }
 
-# --- API Management ---
+# Data source para obter o Application Gateway criado pelo AKS/AGIC
+data "azurerm_application_gateway" "aks_agic_gateway" {
+  name                = var.app_gateway_name
+  resource_group_name = data.terraform_remote_state.compute.outputs.aks_resource_group
+  depends_on          = [data.terraform_remote_state.compute]
+}
+
+# --- 1. API Management (APIM) ---
+
 resource "azurerm_api_management" "apim" {
-  name                = "apim-tchungry-gateway"
+  name                = var.apim_name
   resource_group_name = data.azurerm_resource_group.rg.name
   location            = data.azurerm_resource_group.rg.location
   publisher_name      = var.publisher_name
   publisher_email     = var.publisher_email
-  sku_name            = "Consumption_0"
+  sku_name            = "Developer_1"
+  
+  virtual_network_type = "External"
+  virtual_network_configuration {
+    subnet_id = data.azurerm_subnet.apim_subnet.id
+  }
 }
 
-# --- Backend para AKS ---
+# --- 2. Private DNS Zone para resolução interna ---
+
+resource "azurerm_private_dns_zone" "internal_api" {
+  name                = var.internal_dns_zone_name
+  resource_group_name = data.azurerm_resource_group.rg.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "dns_vnet_link" {
+  name                  = "dns-link-to-vnet"
+  resource_group_name   = data.azurerm_resource_group.rg.name
+  private_dns_zone_name = azurerm_private_dns_zone.internal_api.name
+  virtual_network_id    = data.azurerm_virtual_network.vnet.id
+}
+
+# --- 3. DNS A Record - Aponta pro IP público do Application Gateway ---
+
+resource "azurerm_private_dns_a_record" "ingress_dns_record" {
+  name                = "@"
+  zone_name           = azurerm_private_dns_zone.internal_api.name
+  resource_group_name = data.azurerm_resource_group.rg.name
+  ttl                 = 300
+  
+  # CRÍTICO: Pega o IP PÚBLICO do Application Gateway dinamicamente
+  # O AGIC cria o Application Gateway com IP público, então pegamos esse IP
+  records = [
+    for config in data.azurerm_application_gateway.aks_agic_gateway.frontend_ip_configuration :
+    data.azurerm_public_ip.app_gateway_pip.ip_address
+    if config.public_ip_address_id != null
+  ]
+  
+  depends_on = [data.azurerm_application_gateway.aks_agic_gateway]
+}
+
+# Data source para pegar o IP público do Application Gateway
+data "azurerm_public_ip" "app_gateway_pip" {
+  name                = "agw-ingress-tchungry-appgwpip"
+  resource_group_name = data.terraform_remote_state.compute.outputs.aks_resource_group
+}
+
+# --- 4. BACKENDS DO APIM ---
+
+# Backend do AKS (via DNS interno)
 resource "azurerm_api_management_backend" "api_aks_backend" {
-  name                = "apiaksbackend"
+  name                = "apiaksbackend-v1-1"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
-  url                 = "http://tchungry-api.brazilsouth.cloudapp.azure.com"
-  
-  depends_on = [azurerm_api_management.apim]
+  url                 = "http://${var.internal_dns_zone_name}/api"
+  depends_on          = [azurerm_api_management.apim, azurerm_private_dns_a_record.ingress_dns_record]
 }
 
-# --- Backend para Function ---
+# Backend da Function App
 resource "azurerm_api_management_backend" "auth_function_backend" {
-  name                = "authfunctionbackend"
+  name                = "authfunctionbackend-v1-1"
   resource_group_name = data.azurerm_resource_group.rg.name
   api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
-  url                 = "https://func-tchungry-auth.azurewebsites.net"
-  
-  depends_on = [azurerm_api_management.apim]
+  url                 = "https://${data.terraform_remote_state.compute.outputs.function_app_default_hostname}/api"
+  depends_on          = [azurerm_api_management.apim, data.terraform_remote_state.compute]
 }
 
-# --- API ---
+# --- 5. API DO APIM ---
+
 resource "azurerm_api_management_api" "lanchonete_api" {
-  name                = "lanchonete-api"
-  resource_group_name = data.azurerm_resource_group.rg.name
-  api_management_name = azurerm_api_management.apim.name
-  revision            = "1"
-  display_name        = "API Hungry"
-  path                = "api"
-  protocols           = ["https"]
-  
-  depends_on = [azurerm_api_management.apim]
-
+  name                  = "lanchonete-api"
+  resource_group_name   = data.azurerm_resource_group.rg.name
+  api_management_name   = azurerm_api_management.apim.name
+  revision              = "1"
+  display_name          = "API Hungry"
+  path                  = "api"
+  protocols             = ["https"]
   subscription_required = false
+  depends_on            = [azurerm_api_management.apim]
 }
 
-
+# Operações catch-all para todos os métodos HTTP
 locals {
   http_methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
 }
@@ -124,7 +166,8 @@ resource "azurerm_api_management_api_operation" "catch_all" {
   depends_on = [azurerm_api_management_api.lanchonete_api]
 }
 
-# --- Policy da API ---
+# --- 6. Política de roteamento ---
+
 resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
   api_name            = azurerm_api_management_api.lanchonete_api.name
   api_management_name = azurerm_api_management.apim.name
@@ -136,7 +179,7 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
     <base />
     <rate-limit calls="100" renewal-period="60" />
     <choose>
-      <when condition="@(context.Request.Url.Path.Contains("/auth") || context.Request.Url.Path.Contains("/register"))">
+      <when condition="@(context.Request.Url.Path.Contains("auth") || context.Request.Url.Path.Contains("register"))">
         <set-backend-service backend-id="${azurerm_api_management_backend.auth_function_backend.name}" />
       </when>
       <otherwise>
@@ -157,6 +200,10 @@ resource "azurerm_api_management_api_policy" "lanchonete_api_policy" {
 XML
 
   depends_on = [
-    azurerm_api_management_api_operation.catch_all
+    azurerm_api_management_api_operation.catch_all,
+    azurerm_api_management_backend.auth_function_backend,
+    azurerm_api_management_backend.api_aks_backend
   ]
 }
+
+
