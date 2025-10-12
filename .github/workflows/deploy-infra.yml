@@ -1,7 +1,5 @@
-# Nome do workflow
-name: Deploy Infraestrutura com Terraform
+name: Deploy Infraestrutura Gateway (APIM)
 
-# Gatilhos: Roda em pushes para a main (após um merge) E em pull requests para a main
 on:
   push:
     branches:
@@ -9,36 +7,157 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.5.0'
+  ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+  ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+  ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+  ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
 
 jobs:
   terraform:
-    name: 'Terraform'
+    name: 'Terraform Plan & Apply'
     runs-on: ubuntu-latest
+    
     steps:
-      # 1. Baixa o código do repositório
-      - name: Checkout
+      # 1. Checkout do código
+      - name: 'Checkout code'
         uses: actions/checkout@v4
 
-      # 2. Faz o login no Azure usando as credenciais seguras
-      - name: Azure Login
+      # 2. Login no Azure
+      - name: 'Azure Login'
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 3. Instala a versão correta do Terraform
-      - name: Setup Terraform
+      # 3. Setup do Terraform
+      - name: 'Setup Terraform'
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
 
-      # 4. Inicializa o Terraform
-      - name: Terraform Init
-        run: terraform init
+      # 4. Terraform Format Check
+      - name: 'Terraform Format Check'
+        run: |
+          echo "🔍 Checking Terraform formatting..."
+          terraform fmt -check -recursive
+        continue-on-error: true
 
-      # 5. Gera um plano. Este passo SEMPRE roda.
-      - name: Terraform Plan
-        run: terraform plan -out=tfplan
+      # 5. Terraform Init
+      - name: 'Terraform Init'
+        run: |
+          echo "🔧 Initializing Terraform..."
+          terraform init
+          echo "✅ Terraform initialized!"
 
-      # 6. APLICA o plano, mas SOMENTE se o evento for um PUSH na branch MAIN.
-      # Isso garante que o apply só aconteça depois que um PR for aprovado e mergeado.
-      - name: Terraform Apply
+      # 6. Terraform Validate
+      - name: 'Terraform Validate'
+        run: |
+          echo "✅ Validating Terraform configuration..."
+          terraform validate
+          echo "✅ Configuration is valid!"
+
+      # 7. Terraform Plan
+      - name: 'Terraform Plan'
+        run: |
+          echo "📋 Planning infrastructure changes..."
+          terraform plan -out=tfplan
+          echo "✅ Plan complete!"
+
+      # 8. Terraform Apply (só na main e push)
+      - name: 'Terraform Apply'
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve tfplan
+        run: |
+          echo "🚀 Applying infrastructure changes..."
+          echo "🌐 Creating: APIM, DNS Zone, Backends, Policies..."
+          terraform apply -auto-approve tfplan
+          echo "✅ Gateway infrastructure deployed successfully!"
+
+      # 9. Terraform Output
+      - name: 'Show Terraform Outputs'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "📊 Gateway Infrastructure Outputs:"
+          terraform output -json
+          echo ""
+          echo "🔍 Important URLs:"
+          echo "APIM Gateway URL: $(terraform output -raw api_management_gateway_url)"
+          echo "Internal DNS Zone: $(terraform output -raw internal_dns_zone)"
+          echo "App Gateway Public IP: $(terraform output -raw application_gateway_public_ip)"
+
+     
+
+      # 10. Logout do Azure
+      - name: 'Azure Logout'
+        if: always()
+        run: |
+          az logout
+          echo "✅ Logged out from Azure"
+
+
+      #      # 10. Verifica status do APIM  
+      # - name: 'Verify APIM status'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking APIM status..."
+      #     az apim show --name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "{name:name, provisioningState:provisioningState, gatewayUrl:gatewayUrl, publicIpAddresses:publicIpAddresses}" -o table
+      #     echo "✅ APIM is ready!"
+
+      # # 11. Verifica backends do APIM  
+      # - name: 'Verify APIM backends'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking APIM backends..."
+      #     az apim backend list --service-name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "[].{name:name, url:url, protocol:protocol}" -o table
+      #     echo "✅ Backends configured!"
+
+      # # 12. Verifica DNS privado  
+      # - name: 'Verify Private DNS'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking Private DNS Zone..."
+      #     az network private-dns record-set a show --zone-name api.internal.techchallenge --resource-group rg-tchungry-prod --name "@" --query "{name:name, fqdn:fqdn, records:aRecords[].ipv4Address}" -o table
+      #     echo "✅ DNS configured!"
+
+      # # 13. Testa conectividade do APIM  
+      # - name: 'Test APIM connectivity'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🧪 Testing APIM connectivity..."
+      #     APIM_URL=$(terraform output -raw api_management_gateway_url)
+          
+      #     # Testa se o APIM responde
+      #     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $APIM_URL/api/health || echo "000")
+          
+      #     if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "404" ]; then
+      #       echo "✅ APIM is accessible! (HTTP $HTTP_CODE)"
+      #     else
+      #       echo "⚠️ APIM returned HTTP $HTTP_CODE - May need time to fully provision"
+      #     fi
+          
+      #     echo ""
+      #     echo "🌐 APIM Gateway URL: $APIM_URL"
+      #     echo "📝 Use this URL for all API calls!"
+
+      # # 14. Instrucoes de teste  
+      # - name: 'Show test instructions'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     APIM_URL=$(terraform output -raw api_management_gateway_url)
+          
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo "🎉 DEPLOYMENT COMPLETE!"
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo ""
+      #     echo "📍 Test your APIs:"
+      #     echo ""
+      #     echo "  # Function App (Auth):"
+      #     echo "  curl ${APIM_URL}/api/auth"
+      #     echo "  curl ${APIM_URL}/api/register"
+      #     echo ""
+      #     echo "  # AKS API (Ingredients):"
+      #     echo "  curl ${APIM_URL}/api/ingredients"
+      #     echo ""
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" 

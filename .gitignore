@@ -1,11 +1,9 @@
-# Terraform
-.terraform/
+# Arquivos de estado do Terraform  
 *.tfstate
-*.tfstate.*
-.crash
-*.log
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-.terraform.lock.hcl
+*.tfstate.backup
+
+# Pasta de dependências do Terraform
+.terraform/
+
+# Arquivos de log de crash
+crash.log
