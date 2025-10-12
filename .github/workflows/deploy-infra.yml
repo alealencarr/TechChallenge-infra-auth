@@ -87,74 +87,77 @@ jobs:
           echo "Internal DNS Zone: $(terraform output -raw internal_dns_zone)"
           echo "App Gateway Public IP: $(terraform output -raw application_gateway_public_ip)"
 
-      # 10. Verifica status do APIM  
-      - name: 'Verify APIM status'
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          echo "🔍 Checking APIM status..."
-          az apim show --name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "{name:name, provisioningState:provisioningState, gatewayUrl:gatewayUrl, publicIpAddresses:publicIpAddresses}" -o table
-          echo "✅ APIM is ready!"
+     
 
-      # 11. Verifica backends do APIM  
-      - name: 'Verify APIM backends'
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          echo "🔍 Checking APIM backends..."
-          az apim backend list --service-name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "[].{name:name, url:url, protocol:protocol}" -o table
-          echo "✅ Backends configured!"
-
-      # 12. Verifica DNS privado  
-      - name: 'Verify Private DNS'
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          echo "🔍 Checking Private DNS Zone..."
-          az network private-dns record-set a show --zone-name api.internal.techchallenge --resource-group rg-tchungry-prod --name "@" --query "{name:name, fqdn:fqdn, records:aRecords[].ipv4Address}" -o table
-          echo "✅ DNS configured!"
-
-      # 13. Testa conectividade do APIM  
-      - name: 'Test APIM connectivity'
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          echo "🧪 Testing APIM connectivity..."
-          APIM_URL=$(terraform output -raw api_management_gateway_url)
-          
-          # Testa se o APIM responde
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $APIM_URL/api/health || echo "000")
-          
-          if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "404" ]; then
-            echo "✅ APIM is accessible! (HTTP $HTTP_CODE)"
-          else
-            echo "⚠️ APIM returned HTTP $HTTP_CODE - May need time to fully provision"
-          fi
-          
-          echo ""
-          echo "🌐 APIM Gateway URL: $APIM_URL"
-          echo "📝 Use this URL for all API calls!"
-
-      # 14. Instrucoes de teste  
-      - name: 'Show test instructions'
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          APIM_URL=$(terraform output -raw api_management_gateway_url)
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🎉 DEPLOYMENT COMPLETE!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "📍 Test your APIs:"
-          echo ""
-          echo "  # Function App (Auth):"
-          echo "  curl ${APIM_URL}/api/auth"
-          echo "  curl ${APIM_URL}/api/register"
-          echo ""
-          echo "  # AKS API (Ingredients):"
-          echo "  curl ${APIM_URL}/api/ingredients"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-      # 15. Logout do Azure
+      # 10. Logout do Azure
       - name: 'Azure Logout'
         if: always()
         run: |
           az logout
           echo "✅ Logged out from Azure"
+
+
+      #      # 10. Verifica status do APIM  
+      # - name: 'Verify APIM status'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking APIM status..."
+      #     az apim show --name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "{name:name, provisioningState:provisioningState, gatewayUrl:gatewayUrl, publicIpAddresses:publicIpAddresses}" -o table
+      #     echo "✅ APIM is ready!"
+
+      # # 11. Verifica backends do APIM  
+      # - name: 'Verify APIM backends'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking APIM backends..."
+      #     az apim backend list --service-name apim-tchungry-gateway-latest --resource-group rg-tchungry-prod --query "[].{name:name, url:url, protocol:protocol}" -o table
+      #     echo "✅ Backends configured!"
+
+      # # 12. Verifica DNS privado  
+      # - name: 'Verify Private DNS'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🔍 Checking Private DNS Zone..."
+      #     az network private-dns record-set a show --zone-name api.internal.techchallenge --resource-group rg-tchungry-prod --name "@" --query "{name:name, fqdn:fqdn, records:aRecords[].ipv4Address}" -o table
+      #     echo "✅ DNS configured!"
+
+      # # 13. Testa conectividade do APIM  
+      # - name: 'Test APIM connectivity'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     echo "🧪 Testing APIM connectivity..."
+      #     APIM_URL=$(terraform output -raw api_management_gateway_url)
+          
+      #     # Testa se o APIM responde
+      #     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $APIM_URL/api/health || echo "000")
+          
+      #     if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "404" ]; then
+      #       echo "✅ APIM is accessible! (HTTP $HTTP_CODE)"
+      #     else
+      #       echo "⚠️ APIM returned HTTP $HTTP_CODE - May need time to fully provision"
+      #     fi
+          
+      #     echo ""
+      #     echo "🌐 APIM Gateway URL: $APIM_URL"
+      #     echo "📝 Use this URL for all API calls!"
+
+      # # 14. Instrucoes de teste  
+      # - name: 'Show test instructions'
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      #   run: |
+      #     APIM_URL=$(terraform output -raw api_management_gateway_url)
+          
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo "🎉 DEPLOYMENT COMPLETE!"
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo ""
+      #     echo "📍 Test your APIs:"
+      #     echo ""
+      #     echo "  # Function App (Auth):"
+      #     echo "  curl ${APIM_URL}/api/auth"
+      #     echo "  curl ${APIM_URL}/api/register"
+      #     echo ""
+      #     echo "  # AKS API (Ingredients):"
+      #     echo "  curl ${APIM_URL}/api/ingredients"
+      #     echo ""
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
